@@ -22,15 +22,6 @@ Anorvis is an intelligent AI agent built on top of the NVIDIA NeMo Agent toolkit
 > [!NOTE]
 > This project is based on the [NVIDIA NeMo Agent Toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit) (previously known as Agent Intelligence (AIQ) toolkit). The original project provides a flexible, lightweight, and unifying library that allows you to easily connect existing enterprise agents to data sources and tools across any framework.
 
-## About Anorvis
-
-Anorvis is your intelligent AI assistant that can:
-- **Process complex queries** with reasoning and tool usage
-- **Integrate with multiple frameworks** (LangChain, LlamaIndex, CrewAI, etc.)
-- **Connect to various data sources** and APIs
-- **Provide customizable workflows** for different use cases
-- **Scale from simple to complex** agent architectures
-
 ## Key Features
 
 - **Framework Agnostic**: Works with existing agentic frameworks without replatforming
@@ -87,23 +78,6 @@ curl -X POST "http://localhost:8000/chat" \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello Anorvis!"}'
 ```
-
-#### Interactive UI
-```bash
-# Launch the interactive UI
-aiq ui
-```
-
-## Anorvis Agents
-
-Anorvis uses a domain-based agent architecture:
-
-- **Orchestrator Agent**: Routes requests to appropriate domain agents
-- **Finance Agent**: Financial analysis, budgeting, investments
-- **Health Agent**: Health queries, fitness, nutrition
-- **Research Agent**: Deep research, analysis, data gathering
-- **Creative Agent**: Writing, brainstorming, creative tasks
-- **Productivity Agent**: Scheduling, task management, organization
 
 ## Development
 
