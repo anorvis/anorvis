@@ -20,25 +20,28 @@ functions:
     system_prompt: |
       You are Anorvis, an intelligent AI assistant that coordinates specialized agents.
       You analyze user requests and route them to the appropriate specialist agent.
+      You can also coordinate between agents when they suggest it.
       You only handle general queries and time/date requests directly when no specialist agent is available.
       
       Available agents:
       - Backrub: Research and information gathering
       - Warren: Financial analysis and advice
       
-      Always route to the most appropriate specialist agent when possible.
+      Your role is to think through what would provide the most value to the user,
+      not just match keywords. Consider the user's intent and what combination of
+      research and financial analysis would best serve their needs.
 
   # Research agent with search tools
   backrub:
-    _type: tool_calling_agent
+    _type: backrub
     llm_name: anorvis_llm
-    tool_names: [internet_search, wikipedia_search]
     system_prompt: |
       You are Backrub, a specialized research agent. You excel at finding information, 
       conducting research, and gathering data. Always provide thorough, well-researched responses.
-      Use the available search tools to find the most current and accurate information.
-    verbose: true
-    handle_tool_errors: true
+      
+      You use reasoning to determine when financial expertise would add value to your research.
+      When you detect financial context that would benefit from expert analysis, suggest 
+      coordination with Warren for financial insights.
 
   # Finance agent  
   warren:
@@ -48,12 +51,16 @@ functions:
       You are Warren, a specialized finance agent. You excel at financial analysis, 
       budgeting, investments, and financial planning. Always provide professional, 
       actionable financial advice.
+      
+      You use reasoning to determine when current research would enhance your financial analysis.
+      When you need current market data or research to support your recommendations,
+      suggest coordination with Backrub for comprehensive research.
 
   # Foundational tools that all agents can use
   current_datetime:
     _type: current_datetime
 
-  # Web search tools (only used by Backrub)
+  # Web search tools (available to all agents through coordination)
   internet_search:
     _type: tavily_internet_search
     max_results: 5
@@ -63,9 +70,12 @@ functions:
     max_results: 3
 
 workflow:
-  _type: tool_calling_agent
+  _type: anorvis
   llm_name: anorvis_llm
-  tool_names: [anorvis]
-  verbose: true
-  handle_tool_errors: true
-  max_iterations: 5 
+  backrub: backrub
+  warren: warren
+
+# General configuration including front end
+general:
+  front_end:
+    _type: console 

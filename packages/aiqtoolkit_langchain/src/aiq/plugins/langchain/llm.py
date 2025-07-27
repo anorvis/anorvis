@@ -22,6 +22,7 @@ from aiq.llm.nim_llm import NIMModelConfig
 from aiq.llm.openai_llm import OpenAIModelConfig
 from aiq.llm.ollama_llm import OllamaModelConfig
 from aiq.utils.exception_handlers.automatic_retries import patch_with_retry
+from typing import Any
 
 
 @register_llm_client(
@@ -51,12 +52,23 @@ async def openai_langchain(llm_config: OpenAIModelConfig, builder: Builder):
 
     # Default kwargs for OpenAI to include usage metadata in the response. If the user has set stream_usage to False, we
     # will not include this.
-    default_kwargs = {"stream_usage": True}
+    kwargs: dict[str, Any] = {"stream_usage": True}
 
-    kwargs = {
-        **default_kwargs,
-        **llm_config.model_dump(exclude={"type"}, by_alias=True),
-    }
+    # Add only the fields that ChatOpenAI expects
+    if llm_config.model_name:
+        kwargs["model"] = llm_config.model_name
+    if llm_config.api_key:
+        kwargs["api_key"] = llm_config.api_key
+    if llm_config.base_url:
+        kwargs["base_url"] = llm_config.base_url
+    if llm_config.temperature is not None:
+        kwargs["temperature"] = llm_config.temperature
+    if llm_config.top_p is not None:
+        kwargs["top_p"] = llm_config.top_p
+    if llm_config.seed is not None:
+        kwargs["seed"] = llm_config.seed
+    if llm_config.max_retries is not None:
+        kwargs["max_retries"] = llm_config.max_retries
 
     client = ChatOpenAI(**kwargs)
 
@@ -106,14 +118,20 @@ async def ollama_langchain(llm_config: OllamaModelConfig, builder: Builder):
         )
 
     # Convert AIQ config to LangChain Ollama config - use explicit field mapping
-    ollama_config = {
-        "base_url": llm_config.base_url,
-        "model": llm_config.model_name,
-        "temperature": llm_config.temperature,
-        "top_p": llm_config.top_p,
-        "num_predict": llm_config.max_tokens,
-        "timeout": llm_config.timeout,
-    }
+    ollama_config: dict[str, Any] = {}
+
+    if llm_config.base_url:
+        ollama_config["base_url"] = llm_config.base_url
+    if llm_config.model_name:
+        ollama_config["model"] = llm_config.model_name
+    if llm_config.temperature is not None:
+        ollama_config["temperature"] = llm_config.temperature
+    if llm_config.top_p is not None:
+        ollama_config["top_p"] = llm_config.top_p
+    if llm_config.max_tokens is not None:
+        ollama_config["num_predict"] = llm_config.max_tokens
+    if llm_config.timeout is not None:
+        ollama_config["timeout"] = llm_config.timeout
 
     client = ChatOllama(**ollama_config)
 

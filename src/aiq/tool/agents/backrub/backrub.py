@@ -55,108 +55,93 @@ async def backrub_agent(config: BackrubConfig, builder: Builder):
 
         # Get web search tools
         try:
-            web_search = builder.get_tool("webpage_query")
-            wiki_search = builder.get_tool("wikipedia_search")
+            web_search = builder.get_tool("internet_search", LLMFrameworkEnum.LANGCHAIN)
+            wiki_search = builder.get_tool(
+                "wikipedia_search", LLMFrameworkEnum.LANGCHAIN
+            )
         except Exception as e:
             logger.warning(f"Could not get search tools: {e}")
             web_search = None
             wiki_search = None
 
-        # Determine if this research requires financial expertise
-        query_lower = query.lower()
-        financial_keywords = [
-            "financial",
-            "market",
-            "investment",
-            "stock",
-            "economy",
-            "trading",
-            "budget",
-            "money",
-            "finance",
-        ]
+        # Use LLM to analyze if financial expertise would add value
+        analysis_prompt = f"""
+You are analyzing a research query to determine if financial expertise would add value to the analysis.
 
-        if any(keyword in query_lower for keyword in financial_keywords):
-            logger.info(
-                "Backrub detecting financial research - will coordinate with Anorvis"
-            )
+Query: {query}
 
-            # Instead of calling Anorvis directly, provide comprehensive research
-            # and suggest coordination for financial analysis
-            research_response = f"""
-**Research Results for: {query}**
+Think through this reasoning framework:
 
-I've conducted comprehensive research on this topic. Since this involves financial analysis, 
-I recommend coordinating with our financial specialist (Warren) for detailed financial insights.
+1. **Financial Context**: Does this query involve financial markets, investments, companies, 
+   economic indicators, or financial decision-making?
 
-**Research Summary:**
+2. **Value Addition**: Would having financial analysis (risk assessment, investment advice, 
+   market analysis) provide significant additional value beyond the research?
+
+3. **User Intent**: Is the user likely looking for actionable financial insights, 
+   investment recommendations, or financial planning advice?
+
+Respond with ONLY:
+- 'financial' if financial expertise would add significant value
+- 'general' if this is general research without strong financial context
+
+Reasoning: Focus on user value, not just keywords.
 """
 
-            # Add research context using LLM
-            messages = [
-                {"role": "system", "content": config.system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Provide comprehensive research findings for: {query}. "
-                        "Focus on factual information, trends, and data."
-                    ),
-                },
-            ]
-            research_content = await llm.ainvoke(messages)
+        # Get LLM analysis
+        analysis_messages = [
+            {"role": "system", "content": "You are a research analysis expert."},
+            {"role": "user", "content": analysis_prompt},
+        ]
+        financial_analysis_needed = await llm.ainvoke(analysis_messages)
+        financial_analysis_needed = financial_analysis_needed.content.strip().lower()
 
-            return (
-                research_response
-                + research_content.content
-                + "\n\n**Note:** For detailed financial analysis and recommendations, please ask Anorvis to coordinate with Warren."
-            )
-
-        # For non-financial research, use web search tools
         research_results = []
 
-        # Try web search first
+        # Try web search first for current information
         if web_search:
             try:
-                web_result = await web_search.ainvoke(query)
-                research_results.append(f"**Web Search Results:**\n{web_result}")
+                logger.info("Performing web search for current information")
+                web_results = await web_search.ainvoke(query)
+                if web_results:
+                    research_results.append(
+                        f"**Current Web Search Results:**\n{web_results}"
+                    )
             except Exception as e:
                 logger.warning(f"Web search failed: {e}")
 
-        # Try Wikipedia search
+        # Add Wikipedia search for background information
         if wiki_search:
             try:
-                wiki_result = await wiki_search.ainvoke(query)
-                research_results.append(f"**Wikipedia Results:**\n{wiki_result}")
+                logger.info("Performing Wikipedia search for background information")
+                wiki_results = await wiki_search.ainvoke(query)
+                if wiki_results:
+                    research_results.append(
+                        f"**Wikipedia Background:**\n{wiki_results}"
+                    )
             except Exception as e:
                 logger.warning(f"Wikipedia search failed: {e}")
 
-        # If no search tools available, use LLM for research
-        if not research_results:
-            messages = [
-                {"role": "system", "content": config.system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Provide comprehensive research findings for: {query}. "
-                        "Focus on factual information, trends, and data."
-                    ),
-                },
-            ]
-            research_content = await llm.ainvoke(messages)
-            research_results.append(
-                f"**Research Analysis:**\n{research_content.content}"
+        # Combine results with friendly formatting
+        if research_results:
+            combined_research = "\n\n---\n\n".join(research_results)
+
+            # Simple, direct response
+            final_response = f"Hey! I just looked into '{query}' for you. Here's what I found:\n\n{combined_research}"
+        else:
+            final_response = f"Hey! I tried to look into '{query}' for you, but I couldn't find much current info. You might want to try a different search or ask me something else!"
+
+        # Check if financial analysis would add value
+        if "financial" in financial_analysis_needed:
+            logger.info(
+                "Backrub detecting financial context - suggesting coordination with Warren"
+            )
+            final_response += "\n\nThis seems like something where some financial advice could really help you out. Want me to connect you with my friend who knows that stuff?"
+        else:
+            final_response += (
+                "\n\nHope that helps! Let me know if you need anything else."
             )
 
-        # Combine all research results
-        combined_response = f"""
-**Comprehensive Research Results for: {query}**
-
-{chr(10).join(research_results)}
-
-**Research Summary:**
-This analysis combines multiple sources to provide you with comprehensive information on your query.
-"""
-
-        return combined_response
+        return final_response
 
     yield _backrub

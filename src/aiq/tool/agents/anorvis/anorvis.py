@@ -130,39 +130,56 @@ async def anorvis_agent(config: AnorvisConfig, builder: Builder):
 
         # Create intelligent routing prompt
         router_prompt = """
-Given the user input below, classify it as one of the following categories:
+You are an intelligent query classifier. Your job is to analyze user requests and determine which specialist agent(s) would be best suited to handle them.
 
-- 'backrub': Research, information gathering, data analysis, finding facts, 
-  exploring topics, academic queries, "what is", "how does", "tell me about", 
-  "look up", "find", "search", "news", "latest", "recent", "current events", etc.
-- 'warren': Financial analysis, budgeting, investments, stock market, economic analysis, 
-  cost analysis, financial planning, money management, etc.
-- 'coordinate': Queries that require BOTH research AND financial analysis 
-  (e.g., "research AI and analyze financial impact", "study market trends and provide investment advice")
-- 'general': General questions, greetings, time/date requests, or anything that doesn't fit the above categories
+Think through the following reasoning framework:
 
-Respond with ONLY the category name (backrub, warren, coordinate, or general).
+1. **Research Needs**: Does this query require gathering information, facts, data, or current events?
+   - Examples: "what is", "how does", "find", "research", "latest", "current", "news", "data"
+
+2. **Financial Analysis**: Does this query involve money, investments, markets, budgeting, or financial planning?
+   - Examples: "invest", "buy", "market", "budget", "financial", "cost", "profit", "portfolio"
+
+3. **Coordination Required**: Does this query benefit from BOTH research AND financial analysis?
+   - **CRITICAL**: Investment-related queries (stocks, investments, buying, etc.) almost always need coordination
+   - Examples: "promising stocks to buy", "investment opportunities", "market analysis", "what should I invest in"
+   - Think: Does the user want actionable advice that requires current data AND financial expertise?
+
+4. **General Queries**: Simple questions, greetings, or requests that don't fit the above categories.
+
+**Your Task**: 
+Analyze the user query and respond with ONLY one category:
+- 'backrub' (research needed)
+- 'warren' (financial analysis needed) 
+- 'coordinate' (both research and financial analysis would be valuable)
+- 'general' (simple query, no specialist needed)
+
+**IMPORTANT**: When in doubt about investment queries, choose 'coordinate'. 
+Investment advice without current research is often outdated or incomplete.
 
 User query: {input}
 Classification:"""
 
-        # Create routing chain
-        routing_chain = (
-            {"input": RunnablePassthrough()}
-            | ChatPromptTemplate.from_template(router_prompt)
-            | llm
-            | StrOutputParser()
-        )
+        messages = [
+            SystemMessage(content=router_prompt),
+            HumanMessage(content=query),
+        ]
 
-        # Get classification
-        classification = await routing_chain.ainvoke(query)
-        classification = classification.strip().lower()
+        response = await llm.ainvoke(messages)
+        classification = response.content.strip().lower()
 
-        logger.info(f"LLM classified query as: {classification}")
+        # Clean up the classification - remove any extra text
+        if "classification:" in classification:
+            classification = classification.split("classification:")[-1].strip()
+        if ":" in classification:
+            classification = classification.split(":")[-1].strip()
+        # Remove quotes if present
+        classification = classification.strip("'\" ")
 
-        # Set state based on classification
+        logger.info(f"LLM classified query as: '{classification}'")
+
+        # Set the current agent based on classification
         if classification == "coordinate":
-            state["coordination_needed"] = True
             state["current_agent"] = "coordinator"
         elif classification == "backrub":
             state["current_agent"] = "backrub"
@@ -175,13 +192,19 @@ Classification:"""
 
     async def route_decision(state: AnorvisState) -> str:
         """Decide which route to take based on classification."""
-        if state["coordination_needed"]:
+        logger.info(f"Route decision - current_agent: '{state['current_agent']}'")
+
+        if state["current_agent"] == "coordinator":
+            logger.info("Routing to coordinate_agents")
             return "coordinate"
         elif state["current_agent"] == "backrub":
+            logger.info("Routing to route_to_backrub")
             return "backrub"
         elif state["current_agent"] == "warren":
+            logger.info("Routing to route_to_warren")
             return "warren"
         else:
+            logger.info("Routing to handle_general")
             return "general"
 
     async def route_to_backrub(state: AnorvisState) -> AnorvisState:
@@ -223,23 +246,63 @@ Classification:"""
         return state
 
     async def coordinate_agents(state: AnorvisState) -> AnorvisState:
-        """Coordinate between multiple agents."""
-        logger.info("Coordinating between agents")
-
-        # Get both agents
-        backrub = builder.get_function(config.backrub)
-        warren = builder.get_function(config.warren)
+        """Coordinate between multiple agents intelligently."""
+        logger.info("Starting intelligent coordination between agents")
 
         original_query = state["original_query"]
 
-        # Get both research and financial analysis
-        logger.info("Getting both research and financial analysis")
+        # Start with Backrub for research
+        logger.info("Starting with Backrub for initial research...")
+        backrub = builder.get_function(config.backrub)
         research_response = await backrub.ainvoke(original_query)
-        financial_response = await warren.ainvoke(original_query)
+        logger.info(f"Backrub response received, length: {len(research_response)}")
 
-        state["research_results"] = research_response
-        state["financial_analysis"] = financial_response
-        state["messages"].append(AIMessage(content="Coordination completed"))
+        # Check if Backrub suggests financial analysis is needed
+        if (
+            "warren" in research_response.lower()
+            or "financial" in research_response.lower()
+        ):
+            logger.info("Backrub suggested financial analysis, calling Warren...")
+            warren = builder.get_function(config.warren)
+            financial_response = await warren.ainvoke(original_query)
+            logger.info(f"Warren response received, length: {len(financial_response)}")
+
+            # Now let Warren analyze the research results and provide final advice
+            logger.info("Getting Warren's final analysis based on research...")
+            final_analysis_prompt = f"""
+You are a financial advisor. The user is asking: {original_query}
+
+Here is the research that has been done: {research_response[:1000]}
+
+Based on this research, provide a final, confident answer with:
+1. Specific stock recommendations based on the research
+2. Clear investment advice and reasoning
+3. Risk considerations
+4. Actionable next steps
+
+Be confident, specific, and give concrete advice. The user is waiting for your expert financial opinion.
+"""
+
+            final_analysis = await warren.ainvoke(final_analysis_prompt)
+            logger.info(f"Final analysis received, length: {len(final_analysis)}")
+
+            state["research_results"] = research_response
+            state["financial_analysis"] = final_analysis
+            state["messages"].append(AIMessage(content="Full coordination completed"))
+            logger.info(
+                "Full coordination completed - both agents finished conversation"
+            )
+        else:
+            # Backrub didn't suggest financial analysis, so just use research
+            logger.info(
+                "Backrub didn't suggest financial analysis, using research only"
+            )
+            state["research_results"] = research_response
+            state["financial_analysis"] = ""
+            state["messages"].append(
+                AIMessage(content="Research-only coordination completed")
+            )
+            logger.info("Research-only coordination completed")
 
         return state
 
@@ -266,34 +329,69 @@ Classification:"""
     async def finalize_response(state: AnorvisState) -> AnorvisState:
         """Finalize the response by combining results if needed."""
         if (
-            state["coordination_needed"]
+            state["current_agent"] == "coordinator"
             and state["research_results"]
             and state["financial_analysis"]
         ):
-            # Combine research and financial analysis
-            combined_response = f"""
-**Comprehensive Analysis for: {state["original_query"]}**
+            # Get LLM to create a friendly summary
+            llm = await builder.get_llm(
+                config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN
+            )
 
-**Research Findings:**
-{state["research_results"]}
+            summary_prompt = f"""
+You are a helpful friend who just completed research and got final financial advice. Create a short, friendly summary for the user.
 
-**Financial Analysis:**
-{state["financial_analysis"]}
+Research results: {state["research_results"][:1000]}
+Final financial advice: {state["financial_analysis"][:800]}
 
-**Summary:**
-This analysis combines thorough research with professional financial insights to provide you with a complete picture.
+Write a brief, confident response that:
+1. Starts with "Hey! I looked into that for you..."
+2. Gives specific stock recommendations based on the research
+3. Provides clear, actionable advice
+4. Ends with a friendly reminder about doing your own research
+
+Be confident and specific - the agents have finished their analysis and are ready to give you a final answer.
+Keep it under 200 words and make it sound like a friend giving you solid advice!
 """
-            state["final_response"] = combined_response
+
+            messages = [
+                SystemMessage(content="You are a helpful research assistant."),
+                HumanMessage(content=summary_prompt),
+            ]
+
+            summary_response = await llm.ainvoke(messages)
+            state["final_response"] = summary_response.content
+        elif (
+            state["current_agent"] == "coordinator"
+            and state["research_results"]
+            and not state["financial_analysis"]
+        ):
+            # Research-only coordination
+            state["final_response"] = f"""
+Hey! I found some info for you:
+
+{state["research_results"][:500]}...
+
+Want me to get some financial advice to go with this research?
+"""
         elif state["research_results"]:
-            state["final_response"] = state["research_results"]
+            state["final_response"] = f"""
+Hey! Here's what I found:
+
+{state["research_results"][:300]}...
+"""
         elif state["financial_analysis"]:
-            state["final_response"] = state["financial_analysis"]
+            state["final_response"] = f"""
+Hey! Here's what my financial expert friend had to say:
+
+{state["financial_analysis"][:300]}...
+"""
         elif state["final_response"]:
             # Already set by handle_general
             pass
         else:
             state["final_response"] = (
-                "I apologize, but I wasn't able to process your request properly."
+                "Sorry, I'm having trouble with that right now. Can you try again?"
             )
 
         return state
