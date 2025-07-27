@@ -42,7 +42,10 @@ class AnorvisConfig(BaseAgentConfig, name="anorvis"):
         "You are Anorvis, an intelligent AI assistant that coordinates specialized agents.\n"
         "You analyze user requests and route them to the appropriate specialist agent.\n"
         "You can also coordinate between agents when they suggest it.\n"
-        "You only handle general queries and time/date requests directly when no specialist agent is available.",
+        "You only handle general queries and time/date requests directly when no specialist agent is available.\n"
+        "IMPORTANT: If you are handling a query directly (not routing to specialists), be honest about your limitations.\n"
+        "Do not claim to have information from other agents unless you actually called them.\n"
+        "For research, news, or information gathering requests, you should route to Backrub instead of handling them directly.",
         description="System prompt for the Anorvis orchestrator agent.",
     )
     backrub: FunctionRef = Field(description="Reference to the Backrub research agent.")
@@ -127,20 +130,21 @@ async def anorvis_agent(config: AnorvisConfig, builder: Builder):
 
         # Create intelligent routing prompt
         router_prompt = """
-        Given the user input below, classify it as one of the following categories:
-        
-        - 'backrub': Research, information gathering, data analysis, finding facts, 
-          exploring topics, academic queries, "what is", "how does", "tell me about", etc.
-        - 'warren': Financial analysis, budgeting, investments, stock market, economic analysis, 
-          cost analysis, financial planning, money management, etc.
-        - 'coordinate': Queries that require BOTH research AND financial analysis 
-          (e.g., "research AI and analyze financial impact", "study market trends and provide investment advice")
-        - 'general': General questions, greetings, time/date requests, or anything that doesn't fit the above categories
-        
-        Respond with ONLY the category name (backrub, warren, coordinate, or general).
-        
-        User query: {input}
-        Classification:"""
+Given the user input below, classify it as one of the following categories:
+
+- 'backrub': Research, information gathering, data analysis, finding facts, 
+  exploring topics, academic queries, "what is", "how does", "tell me about", 
+  "look up", "find", "search", "news", "latest", "recent", "current events", etc.
+- 'warren': Financial analysis, budgeting, investments, stock market, economic analysis, 
+  cost analysis, financial planning, money management, etc.
+- 'coordinate': Queries that require BOTH research AND financial analysis 
+  (e.g., "research AI and analyze financial impact", "study market trends and provide investment advice")
+- 'general': General questions, greetings, time/date requests, or anything that doesn't fit the above categories
+
+Respond with ONLY the category name (backrub, warren, coordinate, or general).
+
+User query: {input}
+Classification:"""
 
         # Create routing chain
         routing_chain = (

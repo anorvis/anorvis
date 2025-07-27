@@ -3,10 +3,12 @@
 
 llms:
   anorvis_llm:
-    _type: openai
-    model_name: gpt-3.5-turbo
+    _type: ollama
+    model_name: mistral:latest
+    base_url: http://localhost:11434
     temperature: 0.1
     max_tokens: 1000
+    timeout: 120
 
 functions:
   # Main orchestrator agent
@@ -26,13 +28,17 @@ functions:
       
       Always route to the most appropriate specialist agent when possible.
 
-  # Research agent
+  # Research agent with search tools
   backrub:
-    _type: backrub
+    _type: tool_calling_agent
     llm_name: anorvis_llm
+    tool_names: [internet_search, wikipedia_search]
     system_prompt: |
       You are Backrub, a specialized research agent. You excel at finding information, 
       conducting research, and gathering data. Always provide thorough, well-researched responses.
+      Use the available search tools to find the most current and accurate information.
+    verbose: true
+    handle_tool_errors: true
 
   # Finance agent  
   warren:
@@ -47,11 +53,19 @@ functions:
   current_datetime:
     _type: current_datetime
 
+  # Web search tools (only used by Backrub)
+  internet_search:
+    _type: tavily_internet_search
+    max_results: 5
+
+  wikipedia_search:
+    _type: wiki_search
+    max_results: 3
+
 workflow:
   _type: tool_calling_agent
   llm_name: anorvis_llm
   tool_names: [anorvis]
-  system_prompt: |
-    You are an AI assistant that helps users by routing their requests to the appropriate specialist agent.
-    Use the anorvis tool to handle all user requests.
-    The anorvis agent will intelligently route requests to the best specialist agent or handle them directly when appropriate. 
+  verbose: true
+  handle_tool_errors: true
+  max_iterations: 5 

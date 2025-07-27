@@ -25,7 +25,9 @@ class BackrubConfig(BaseAgentConfig, name="backrub"):
     )
 
 
-@register_function(config_type=BackrubConfig)
+@register_function(
+    config_type=BackrubConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN]
+)
 async def backrub_agent(config: BackrubConfig, builder: Builder):
     """
     Backrub Research Agent function.
@@ -50,6 +52,15 @@ async def backrub_agent(config: BackrubConfig, builder: Builder):
         llm = await builder.get_llm(
             config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN
         )
+
+        # Get web search tools
+        try:
+            web_search = builder.get_tool("webpage_query")
+            wiki_search = builder.get_tool("wikipedia_search")
+        except Exception as e:
+            logger.warning(f"Could not get search tools: {e}")
+            web_search = None
+            wiki_search = None
 
         # Determine if this research requires financial expertise
         query_lower = query.lower()
@@ -100,18 +111,52 @@ I recommend coordinating with our financial specialist (Warren) for detailed fin
                 + "\n\n**Note:** For detailed financial analysis and recommendations, please ask Anorvis to coordinate with Warren."
             )
 
-        # For other research, provide comprehensive response using the LLM
-        logger.info("Backrub conducting research using LLM")
+        # For non-financial research, use web search tools
+        research_results = []
 
-        messages = [
-            {"role": "system", "content": config.system_prompt},
-            {
-                "role": "user",
-                "content": f"Please research the following topic thoroughly: {query}",
-            },
-        ]
+        # Try web search first
+        if web_search:
+            try:
+                web_result = await web_search.ainvoke(query)
+                research_results.append(f"**Web Search Results:**\n{web_result}")
+            except Exception as e:
+                logger.warning(f"Web search failed: {e}")
 
-        response = await llm.ainvoke(messages)
-        return response.content
+        # Try Wikipedia search
+        if wiki_search:
+            try:
+                wiki_result = await wiki_search.ainvoke(query)
+                research_results.append(f"**Wikipedia Results:**\n{wiki_result}")
+            except Exception as e:
+                logger.warning(f"Wikipedia search failed: {e}")
+
+        # If no search tools available, use LLM for research
+        if not research_results:
+            messages = [
+                {"role": "system", "content": config.system_prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Provide comprehensive research findings for: {query}. "
+                        "Focus on factual information, trends, and data."
+                    ),
+                },
+            ]
+            research_content = await llm.ainvoke(messages)
+            research_results.append(
+                f"**Research Analysis:**\n{research_content.content}"
+            )
+
+        # Combine all research results
+        combined_response = f"""
+**Comprehensive Research Results for: {query}**
+
+{chr(10).join(research_results)}
+
+**Research Summary:**
+This analysis combines multiple sources to provide you with comprehensive information on your query.
+"""
+
+        return combined_response
 
     yield _backrub
