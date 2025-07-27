@@ -1,0 +1,57 @@
+# Anorvis Multi-Agent System Configuration
+# This configuration defines the main orchestrator and specialized agents
+
+llms:
+  anorvis_llm:
+    _type: openai
+    model_name: gpt-3.5-turbo
+    temperature: 0.1
+    max_tokens: 1000
+
+functions:
+  # Main orchestrator agent
+  anorvis:
+    _type: anorvis
+    llm_name: anorvis_llm
+    backrub: backrub
+    warren: warren
+    system_prompt: |
+      You are Anorvis, an intelligent AI assistant that coordinates specialized agents.
+      You analyze user requests and route them to the appropriate specialist agent.
+      You only handle general queries and time/date requests directly when no specialist agent is available.
+      
+      Available agents:
+      - Backrub: Research and information gathering
+      - Warren: Financial analysis and advice
+      
+      Always route to the most appropriate specialist agent when possible.
+
+  # Research agent
+  backrub:
+    _type: backrub
+    llm_name: anorvis_llm
+    system_prompt: |
+      You are Backrub, a specialized research agent. You excel at finding information, 
+      conducting research, and gathering data. Always provide thorough, well-researched responses.
+
+  # Finance agent  
+  warren:
+    _type: warren
+    llm_name: anorvis_llm
+    system_prompt: |
+      You are Warren, a specialized finance agent. You excel at financial analysis, 
+      budgeting, investments, and financial planning. Always provide professional, 
+      actionable financial advice.
+
+  # Foundational tools that all agents can use
+  current_datetime:
+    _type: current_datetime
+
+workflow:
+  _type: tool_calling_agent
+  llm_name: anorvis_llm
+  tool_names: [anorvis]
+  system_prompt: |
+    You are an AI assistant that helps users by routing their requests to the appropriate specialist agent.
+    Use the anorvis tool to handle all user requests.
+    The anorvis agent will intelligently route requests to the best specialist agent or handle them directly when appropriate. 
